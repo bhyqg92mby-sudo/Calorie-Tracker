@@ -1,4 +1,11 @@
-import React, { useState, useEffect, useMemo } from "react";
+// src/App.jsx
+import React, { useEffect, useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+
+/* Single-file full update
+   - Contains DB, UI, charts (SVG), history, goals, custom meals, favorites
+   - Uses only React + framer-motion (already in your project)
+*/
 
 const FOOD_DB = {
   Poultry: {
@@ -106,77 +113,129 @@ const FOOD_DB = {
   }
 };
 
+// ---- Helpers ----
+const round = (n) => Math.round(n * 10) / 10;
 
 function flattenDB(db) {
   const flat = [];
-  Object.keys(db).forEach(cat => {
-    const subcats = db[cat];
-    Object.keys(subcats).forEach(sub => {
-      const items = subcats[sub];
-      Object.keys(items).forEach(name => {
-        flat.push({ category: cat, subcategory: sub, name, ...items[name] });
+  Object.keys(db).forEach((cat) => {
+    const sub = db[cat];
+    Object.keys(sub).forEach((subcat) => {
+      const items = sub[subcat];
+      Object.keys(items).forEach((name) => {
+        flat.push({ category: cat, subcategory: subcat, name, ...items[name] });
       });
     });
   });
   return flat;
 }
 
-function round(n){ return Math.round(n*10)/10; }
-
-function toCSV(rows){
-  if(!rows || rows.length === 0) return "";
+function toCSV(rows) {
+  if (!rows || rows.length === 0) return "";
   const headers = Object.keys(rows[0]);
   const lines = [headers.join(",")];
-  rows.forEach(r => lines.push(headers.map(h => JSON.stringify(r[h] ?? "")).join(",")));
+  rows.forEach((r) => lines.push(headers.map(h => JSON.stringify(r[h] ?? "")).join(",")));
   return lines.join("\n");
 }
 
-function fromCSV(text){
-  if(!text) return [];
+function fromCSV(text) {
+  if (!text) return [];
   const [headerLine, ...lines] = text.split(/\r?\n/).filter(Boolean);
-  const headers = headerLine.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(h => h.replace(/^"|"$/g,""));
+  if (!headerLine) return [];
+  const headers = headerLine.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(h => h.replace(/^"|"$/g, ""));
   return lines.map(line => {
-    const cols = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(c => c.replace(/^"|"$/g,""));
+    const cols = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(c => c.replace(/^"|"$/g, ""));
     const obj = {};
-    headers.forEach((h,i) => obj[h] = cols[i]);
+    headers.forEach((h, i) => obj[h] = cols[i]);
     return obj;
   });
 }
 
-export default function App(){
-  const DB_KEY = "cm_db_v3";
-  const LOG_KEY = "cm_log_v3";
-  const META_KEY = "cm_meta_v3";
+function getTodayISO(offset = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  const iso = d.toISOString().slice(0, 10);
+  return iso;
+}
 
+// ---- Main App ----
+export default function App() {
+  // storage keys
+  const DB_KEY = "cm_db_v4";
+  const LOG_KEY = "cm_log_v4";
+  const META_KEY = "cm_meta_v4";
+  const GOAL_KEY = "cm_goals_v2";
+
+  // state
   const [db, setDb] = useState(() => {
-    const raw = localStorage.getItem(DB_KEY);
-    try { return raw ? JSON.parse(raw) : FOOD_DB; } catch(e){ return FOOD_DB; }
-  });
-  const [log, setLog] = useState(() => {
-    const raw = localStorage.getItem(LOG_KEY);
-    try { return raw ? JSON.parse(raw) : []; } catch(e){ return []; }
-  });
-  const [meta, setMeta] = useState(() => {
-    const raw = localStorage.getItem(META_KEY);
-    try { return raw ? JSON.parse(raw) : { favorites: {}, counts: {}, settings: { show: "Both", sortBy: "name" }, meals: {} }; } catch(e){ return { favorites: {}, counts: {}, settings: { show: "Both", sortBy: "name" }, meals: {} }; }
+    try {
+      const raw = localStorage.getItem(DB_KEY);
+      return raw ? JSON.parse(raw) : FOOD_DB;
+    } catch {
+      return FOOD_DB;
+    }
   });
 
+  const [meta, setMeta] = useState(() => {
+    try {
+      const raw = localStorage.getItem(META_KEY);
+      return raw ? JSON.parse(raw) : { favorites: {}, counts: {}, meals: {} , settings: { theme: "light", show: "Both", sortBy: "name" } };
+    } catch {
+      return { favorites: {}, counts: {}, meals: {}, settings: { theme: "light", show: "Both", sortBy: "name" } };
+    }
+  });
+
+  const [log, setLog] = useState(() => {
+    try {
+      const raw = localStorage.getItem(LOG_KEY);
+      return raw ? JSON.parse(raw) : {}; // logs keyed by ISO date
+    } catch {
+      return {};
+    }
+  });
+
+  const [goals, setGoals] = useState(() => {
+    try {
+      const raw = localStorage.getItem(GOAL_KEY);
+      return raw ? JSON.parse(raw) : { kcal: 2500, protein: 150, carbs: 250, fat: 70 };
+    } catch {
+      return { kcal: 2500, protein: 150, carbs: 250, fat: 70 };
+    }
+  });
+
+  // UI state
   const [search, setSearch] = useState("");
   const [filterShow, setFilterShow] = useState(meta.settings?.show || "Both");
   const [sortBy, setSortBy] = useState(meta.settings?.sortBy || "name");
+  const [theme, setTheme] = useState(meta.settings?.theme || "light");
+  const [selectedDate, setSelectedDate] = useState(getTodayISO());
+  const [viewMode, setViewMode] = useState("today"); // today | history | settings
+  const [editingMealName, setEditingMealName] = useState("");
+  const [editingMealComponents, setEditingMealComponents] = useState([]);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
 
-  const [goalKcal, setGoalKcal] = useState(() => { try { const g = JSON.parse(localStorage.getItem('cm_goals_v1')||'null'); return (g && g.kcal) || 2500; } catch(e){ return 2500; } });
-  const [goalProtein, setGoalProtein] = useState(() => { try { const g = JSON.parse(localStorage.getItem('cm_goals_v1')||'null'); return (g && g.protein) || 150; } catch(e){ return 150; } });
-  const [goalCarbs, setGoalCarbs] = useState(() => { try { const g = JSON.parse(localStorage.getItem('cm_goals_v1')||'null'); return (g && g.carbs) || 250; } catch(e){ return 250; } });
-  const [goalFat, setGoalFat] = useState(() => { try { const g = JSON.parse(localStorage.getItem('cm_goals_v1')||'null'); return (g && g.fat) || 70; } catch(e){ return 70; } });
-
-  useEffect(()=>{ try{ localStorage.setItem(DB_KEY, JSON.stringify(db)); }catch(e){} }, [db]);
-  useEffect(()=>{ try{ localStorage.setItem(LOG_KEY, JSON.stringify(log)); }catch(e){} }, [log]);
-  useEffect(()=>{ try{ localStorage.setItem(META_KEY, JSON.stringify(meta)); }catch(e){} }, [meta]);
-  useEffect(()=>{ try{ localStorage.setItem('cm_goals_v1', JSON.stringify({ kcal: goalKcal, protein: goalProtein, carbs: goalCarbs, fat: goalFat })); }catch(e){} }, [goalKcal, goalProtein, goalCarbs, goalFat]);
-
+  // derived
   const flatList = useMemo(() => flattenDB(db), [db]);
 
+  useEffect(() => {
+    try { localStorage.setItem(DB_KEY, JSON.stringify(db)); } catch (e) {}
+  }, [db]);
+  useEffect(() => {
+    try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch (e) {}
+  }, [meta]);
+  useEffect(() => {
+    try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch (e) {}
+  }, [log]);
+  useEffect(() => {
+    try { localStorage.setItem(GOAL_KEY, JSON.stringify(goals)); } catch (e) {}
+  }, [goals]);
+
+  useEffect(() => {
+    document.documentElement.style.background = theme === "dark" ? "#0f1720" : "#f7fafc";
+    document.documentElement.style.color = theme === "dark" ? "#e6eef6" : "#0b1220";
+  }, [theme]);
+
+  // filtered list
   const filteredList = useMemo(() => {
     const q = (search || "").trim().toLowerCase();
     let items = flatList.filter(it => {
@@ -185,146 +244,605 @@ export default function App(){
       if (!q) return true;
       return (it.name + " " + it.category + " " + it.subcategory).toLowerCase().includes(q);
     });
-    if (sortBy === "kcal") items.sort((a,b) => (b.kcal||0) - (a.kcal||0));
-    else if (sortBy === "protein") items.sort((a,b) => (b.protein||0) - (a.protein||0));
-    else items.sort((a,b) => (a.name||"").localeCompare(b.name||""));
+    if (sortBy === "kcal") items.sort((a, b) => (b.kcal || 0) - (a.kcal || 0));
+    else if (sortBy === "protein") items.sort((a, b) => (b.protein || 0) - (a.protein || 0));
+    else items.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     return items;
   }, [flatList, search, filterShow, sortBy]);
 
-  function approxForItem(item, amount){
+  // helpers to handle logs per date
+  function getLogsForDate(dateISO) {
+    return (log[dateISO] || []);
+  }
+  function setLogsForDate(dateISO, entries) {
+    setLog(prev => {
+      const next = { ...prev, [dateISO]: entries };
+      return next;
+    });
+  }
+
+  // approx macros for amount
+  function approxForItem(item, amount) {
     const amt = Number(amount) || item.per || 100;
     const ratio = amt / (item.per || 100);
-    return { kcal: round((item.kcal||0) * ratio), protein: round((item.protein||0) * ratio), carbs: round((item.carbs||0) * ratio), fat: round((item.fat||0) * ratio) };
+    return {
+      kcal: round((item.kcal || 0) * ratio),
+      protein: round((item.protein || 0) * ratio),
+      carbs: round((item.carbs || 0) * ratio),
+      fat: round((item.fat || 0) * ratio)
+    };
   }
 
-  function addLogEntry(item, qty){
-    if(!item || !item.name) return;
+  function addLogEntry(item, qty, dateISO = selectedDate) {
+    if (!item || !item.name) return;
     const amt = Number(qty) || item.per || 100;
     const macros = approxForItem(item, amt);
-    const entry = { id: Date.now(), category: item.category, subcategory: item.subcategory, name: item.name, qty: amt, per: item.per, ...macros };
-    setLog(s => [entry, ...s]);
+    const entry = {
+      id: Date.now() + Math.random(),
+      category: item.category,
+      subcategory: item.subcategory,
+      name: item.name,
+      qty: amt,
+      per: item.per,
+      ...macros
+    };
+    const prev = getLogsForDate(dateISO);
+    setLogsForDate(dateISO, [entry, ...prev]);
+    // update counts
     const key = `${item.name}|||${item.category}`;
-    setMeta(m => { const nm = {...m}; nm.counts = nm.counts || {}; nm.counts[key] = (nm.counts[key] || 0) + 1; return nm; });
+    setMeta(m => {
+      const nm = { ...m };
+      nm.counts = nm.counts || {};
+      nm.counts[key] = (nm.counts[key] || 0) + 1;
+      return nm;
+    });
   }
 
-  function exportDB(){
+  function removeEntry(dateISO, id) {
+    const prev = getLogsForDate(dateISO);
+    setLogsForDate(dateISO, prev.filter(e => e.id !== id));
+  }
+
+  function clearDate(dateISO) {
+    setLogsForDate(dateISO, []);
+  }
+
+  function toggleFavorite(itemKey) {
+    setMeta(m => {
+      const nm = { ...m };
+      nm.favorites = nm.favorites || {};
+      nm.favorites[itemKey] = !nm.favorites[itemKey];
+      return nm;
+    });
+  }
+
+  // meals
+  function saveMeal(name, components) {
+    if (!name || !components || !components.length) return;
+    setMeta(m => {
+      const nm = { ...m };
+      nm.meals = nm.meals || {};
+      nm.meals[name] = components;
+      return nm;
+    });
+    setEditingMealName("");
+    setEditingMealComponents([]);
+  }
+
+  function deleteMeal(name) {
+    setMeta(m => {
+      const nm = { ...m };
+      if (nm.meals) delete nm.meals[name];
+      return nm;
+    });
+  }
+
+  function addMealToLog(name, dateISO = selectedDate) {
+    if (!meta.meals || !meta.meals[name]) return;
+    meta.meals[name].forEach(c => {
+      const found = flatList.find(i => i.name === c.name && i.category === c.category);
+      addLogEntry(found || c, c.qty || c.per || 100, dateISO);
+    });
+  }
+
+  // frequent items
+  const frequent = useMemo(() => {
+    return Object.entries(meta.counts || {})
+      .map(([k, v]) => ({ key: k, count: v }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8)
+      .map(e => {
+        const [name, category] = e.key.split("|||");
+        const found = flatList.find(i => i.name === name && i.category === category);
+        return found ? { ...found, count: e.count } : null;
+      })
+      .filter(Boolean);
+  }, [meta.counts, flatList]);
+
+  // CSV export
+  function exportDB() {
     try {
       const rows = flattenDB(db).map(i => ({ category: i.category, subcategory: i.subcategory, name: i.name, kcal: i.kcal, protein: i.protein, carbs: i.carbs, fat: i.fat, per: i.per }));
       const csv = toCSV(rows);
-      const blob = new Blob([csv], { type: 'text/csv' });
+      const blob = new Blob([csv], { type: "text/csv" });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = 'food_db_export.csv'; a.click(); URL.revokeObjectURL(url);
-    } catch(e) { alert('Export failed'); }
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "food_db_export.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert("Export DB failed");
+    }
   }
 
-  function importDB(file){
-    if(!file) return;
+  function exportLogCSV() {
+    try {
+      const all = [];
+      Object.keys(log).forEach(d => {
+        (log[d] || []).forEach(e => all.push({ date: d, name: e.name, qty: e.qty, kcal: e.kcal, protein: e.protein, carbs: e.carbs, fat: e.fat }));
+      });
+      const csv = toCSV(all);
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "food_log_export.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert("Export log failed");
+    }
+  }
+
+  function importDB(file) {
+    if (!file) return;
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const rows = fromCSV(e.target.result || "");
-        const newDb = JSON.parse(JSON.stringify(db));
+        const newDb = { ...db };
         if (!newDb.Imported) newDb.Imported = { General: {} };
         rows.forEach(r => {
           const name = r.name || `Imported ${Date.now()}`;
-          newDb.Imported.General[name] = { kcal: Number(r.kcal)||0, protein: Number(r.protein)||0, carbs: Number(r.carbs)||0, fat: Number(r.fat)||0, per: Number(r.per)||100 };
+          newDb.Imported.General[name] = { kcal: Number(r.kcal) || 0, protein: Number(r.protein) || 0, carbs: Number(r.carbs) || 0, fat: Number(r.fat) || 0, per: Number(r.per) || 100 };
         });
         setDb(newDb);
         alert('Imported into category "Imported"');
-      } catch(err) { alert('Failed to import: ' + (err && err.message ? err.message : err)); }
+      } catch (err) {
+        alert("Import failed: " + (err && err.message ? err.message : err));
+      }
     };
     reader.readAsText(file);
   }
 
-  const totals = log.reduce((acc,e) => { acc.kcal+=e.kcal||0; acc.protein+=e.protein||0; acc.carbs+=e.carbs||0; acc.fat+=e.fat||0; return acc; }, {kcal:0, protein:0, carbs:0, fat:0});
+  // Weekly simple aggregates for chart (last 7 days)
+  const weeklyAgg = useMemo(() => {
+    const res = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = getTodayISO(-i);
+      const entries = getLogsForDate(d) || [];
+      const sum = entries.reduce((acc, e) => {
+        acc.kcal += (e.kcal || 0);
+        acc.protein += (e.protein || 0);
+        return acc;
+      }, { kcal: 0, protein: 0 });
+      res.push({ date: d, kcal: sum.kcal, protein: sum.protein });
+    }
+    return res;
+  }, [log]);
 
+  // UI small components
+  const TopBar = () => (
+    <div style={styles.topbar}>
+      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+        <h2 style={{ margin: 0 }}>Calorie & Macro Tracker</h2>
+        <div style={{ fontSize: 13, color: "#666" }}>— quick logging, goals, history</div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button onClick={() => { setViewMode("today"); setSelectedDate(getTodayISO()); }} style={styles.button}>Today</button>
+        <button onClick={() => setViewMode("history")} style={styles.button}>History</button>
+        <button onClick={() => setViewMode("settings")} style={styles.button}>Settings</button>
+
+        <div style={{ width: 1, height: 22, background: theme === "dark" ? "#233" : "#e6eef6", margin: "0 8px" }} />
+
+        <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input type="checkbox" checked={theme === "dark"} onChange={() => { const t = theme === "dark" ? "light" : "dark"; setTheme(t); setMeta(m => ({ ...m, settings: { ...(m.settings || {}), theme: t } })); }} />
+          <small>Dark</small>
+        </label>
+      </div>
+    </div>
+  );
+
+  // Simple progress bar component
+  const ProgressBar = ({ value, goal }) => {
+    const pct = goal > 0 ? Math.min(100, Math.round((value / goal) * 100)) : 0;
+    return (
+      <div style={{ height: 10, background: theme === "dark" ? "#112" : "#eee", borderRadius: 6, overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: pct >= 100 ? "#16a34a" : "#2563eb" }} />
+      </div>
+    );
+  };
+
+  // Chart component (SVG bar chart for last 7 days)
+  const WeeklyChart = ({ data, field }) => {
+    const max = Math.max(...data.map(d => d[field]), 10);
+    const w = 420, h = 120, pad = 20;
+    const bw = Math.floor((w - pad * 2) / data.length) - 6;
+    return (
+      <svg width={w} height={h} style={{ background: theme === "dark" ? "transparent" : "transparent", borderRadius: 6 }}>
+        {data.map((d, i) => {
+          const x = pad + i * (bw + 6);
+          const val = d[field];
+          const height = max ? Math.max(2, Math.round((val / max) * (h - pad * 2))) : 2;
+          const y = h - pad - height;
+          return (
+            <g key={d.date}>
+              <rect x={x} y={y} width={bw} height={height} rx={4} fill={field === "kcal" ? "#fb923c" : "#60a5fa"} />
+              <text x={x + bw / 2} y={h - 4} fontSize={10} textAnchor="middle" fill={theme === "dark" ? "#cfe8ff" : "#333"}>
+                {d.date.slice(5)}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    );
+  };
+
+  // Today's totals for selected date
+  const totals = getLogsForDate(selectedDate).reduce((acc, e) => {
+    acc.kcal += (e.kcal || 0);
+    acc.protein += (e.protein || 0);
+    acc.carbs += (e.carbs || 0);
+    acc.fat += (e.fat || 0);
+    return acc;
+  }, { kcal: 0, protein: 0, carbs: 0, fat: 0 });
+
+  // Quick UI: add custom food
+  function addCustomFood(name, kcal, protein, carbs, fat, per = 100, category = "Custom", subcategory = "General") {
+    setDb(prev => {
+      const n = { ...prev };
+      if (!n[category]) n[category] = {};
+      if (!n[category][subcategory]) n[category][subcategory] = {};
+      n[category][subcategory][name] = { kcal: Number(kcal) || 0, protein: Number(protein) || 0, carbs: Number(carbs) || 0, fat: Number(fat) || 0, per: Number(per) || 100 };
+      return n;
+    });
+  }
+
+  // Favorites keys helper
+  function itemKey(it) {
+    return `${it.name}|||${it.category}`;
+  }
+
+  // Simple UI layout
   return (
-    <div style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial", padding: 16 }}>
-      <header style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
-        <h1>Calorie & Macro Tracker</h1>
-        <div>
-          <button onClick={exportDB} style={{marginRight:8}}>Export DB</button>
-          <label style={{marginRight:8, cursor:"pointer"}}>Import DB<input type="file" accept=".csv" style={{display:"none"}} onChange={(e)=>importDB(e.target.files[0])} /></label>
-        </div>
-      </header>
+    <div style={{ maxWidth: 1100, margin: "18px auto", padding: 14 }}>
+      <TopBar />
 
-      <div style={{display:"grid", gridTemplateColumns:"320px 1fr", gap:16, marginTop:16}}>
-        <aside style={{padding:12, border:"1px solid #ddd", borderRadius:8}}>
-          <input placeholder="Search food..." value={search} onChange={(e)=>setSearch(e.target.value)} style={{width:"100%", padding:8, marginBottom:8}} />
-          <div style={{display:"flex", gap:8, marginBottom:8}}>
-            <select value={filterShow} onChange={(e)=>{ setFilterShow(e.target.value); setMeta(m=>({...m, settings:{...(m.settings||{}), show: e.target.value}})); }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 16, marginTop: 12 }}>
+        <div>
+          {/* Search + filters */}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search foods (e.g. chicken, rice)" style={styles.input} />
+            <select value={filterShow} onChange={e => { setFilterShow(e.target.value); setMeta(m => ({ ...m, settings: { ...(m.settings || {}), show: e.target.value } })); }} style={styles.select}>
               <option value="Both">Both</option>
               <option value="Raw">Raw</option>
               <option value="Cooked">Cooked</option>
             </select>
-            <select value={sortBy} onChange={(e)=>{ setSortBy(e.target.value); setMeta(m=>({...m, settings:{...(m.settings||{}), sortBy: e.target.value}})); }}>
-              <option value="name">Sort: Name</option>
-              <option value="kcal">Sort: kcal</option>
-              <option value="protein">Sort: protein</option>
+            <select value={sortBy} onChange={e => { setSortBy(e.target.value); setMeta(m => ({ ...m, settings: { ...(m.settings || {}), sortBy: e.target.value } })); }} style={styles.select}>
+              <option value="name">Name</option>
+              <option value="kcal">kcal</option>
+              <option value="protein">protein</option>
             </select>
+            <button onClick={() => { setShowQuickAdd(s => !s); }} style={styles.button}>+ Custom</button>
           </div>
 
-          <div>
-            <h3>Daily Goals</h3>
-            <label>Calories<input type="number" value={goalKcal} onChange={(e)=>setGoalKcal(Number(e.target.value)||0)} style={{width:"100%"}} /></label>
-            <label>Protein<input type="number" value={goalProtein} onChange={(e)=>setGoalProtein(Number(e.target.value)||0)} style={{width:"100%"}} /></label>
-            <label>Carbs<input type="number" value={goalCarbs} onChange={(e)=>setGoalCarbs(Number(e.target.value)||0)} style={{width:"100%"}} /></label>
-            <label>Fat<input type="number" value={goalFat} onChange={(e)=>setGoalFat(Number(e.target.value)||0)} style={{width:"100%"}} /></label>
+          <AnimatePresence>
+            {showQuickAdd && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} style={{ overflow: "hidden", marginBottom: 12 }}>
+                <QuickAdd onAdd={addCustomFood} onClose={() => setShowQuickAdd(false)} />
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-            <div style={{marginTop:8, padding:8, background:"#fafafa", borderRadius:6}}>
-              <div>Consumed: {Math.round(totals.kcal)} kcal / Remaining: {Math.max(0, Math.round(goalKcal - totals.kcal))} kcal</div>
-              <div>Protein: {round(totals.protein)}g / {Math.max(0, round(goalProtein - totals.protein))}g</div>
-              <div>Carbs: {round(totals.carbs)}g / {Math.max(0, round(goalCarbs - totals.carbs))}g</div>
-              <div>Fat: {round(totals.fat)}g / {Math.max(0, round(goalFat - totals.fat))}g</div>
-            </div>
-          </div>
-        </aside>
-
-        <main>
-          <section style={{padding:12, border:"1px solid #ddd", borderRadius:8}}>
-            <h3>Foods</h3>
-            <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8}}>
-              {filteredList.map(it => {
-                const key = `${it.name}|||${it.category}`;
-                return (
-                  <div key={key} style={{padding:8, border:"1px solid #eee", borderRadius:6}}>
-                    <div style={{fontWeight:600}}>{it.name}</div>
-                    <div style={{fontSize:12, color:"#666"}}>{it.category} • {it.subcategory} • per {it.per}</div>
-                    <div style={{marginTop:8}}>
-                      <input type="number" defaultValue={it.per} id={`qty-${key}`} style={{width:80, padding:4}} />
-                      <button onClick={() => { const v = document.getElementById(`qty-${key}`).value; addLogEntry(it, v); }} style={{marginLeft:8}}>Add</button>
+          {/* Foods grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10 }}>
+            {filteredList.map(it => {
+              const key = itemKey(it);
+              return (
+                <motion.div key={key} layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} style={cardStyle(theme)}>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{it.name}</div>
+                      <div style={{ fontSize: 12, color: theme === "dark" ? "#cfe8ff" : "#4b5563" }}>{it.category} • {it.subcategory} • per {it.per}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontWeight: 700 }}>{it.kcal} kcal</div>
+                      <div style={{ fontSize: 12 }}>{it.protein}P • {it.carbs}C • {it.fat}F</div>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </section>
 
-          <section style={{marginTop:12, padding:12, border:"1px solid #ddd", borderRadius:8}}>
-            <h3>Today's Log ({log.length})</h3>
-            <div>
-              {log.map(e => (
-                <div key={e.id} style={{display:"flex", justifyContent:"space-between", padding:8, borderBottom:"1px solid #f0f0f0"}}>
-                  <div>
-                    <div style={{fontWeight:600}}>{e.name}</div>
-                    <div style={{fontSize:12, color:"#666"}}>{e.category} • {e.subcategory} • Qty: {e.qty}</div>
+                  <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
+                    <input defaultValue={it.per} id={`qty-${key}`} style={{ width: 84, padding: 6, borderRadius: 6 }} />
+                    <button onClick={() => { const v = document.getElementById(`qty-${key}`).value; addLogEntry(it, v); }} style={styles.button}>Add</button>
+                    <button onClick={() => toggleFavorite(key)} title="Favorite" style={styles.iconButton}>{meta.favorites && meta.favorites[key] ? "★" : "☆"}</button>
+                    <button onClick={() => setEditingMealComponents(s => [...s, { category: it.category, subcategory: it.subcategory, name: it.name, qty: it.per }])} title="Add to meal" style={styles.iconButton}>＋meal</button>
                   </div>
-                  <div style={{textAlign:"right"}}>
-                    <div>{e.kcal} kcal</div>
-                    <div style={{fontSize:12}}>{e.protein}P • {e.carbs}C • {e.fat}F</div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </div>
+
+        <aside>
+          {/* Right column: Goals, charts, log */}
+          <div style={{ padding: 12, borderRadius: 8, ...panelStyle(theme) }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div><strong>Goals</strong></div>
+              <div style={{ fontSize: 12, color: "#888" }}>Daily</div>
+            </div>
+
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 13, marginBottom: 4 }}>Calories</div>
+              <ProgressBar value={totals.kcal} goal={goals.kcal} />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 6 }}>
+                <div>{Math.round(totals.kcal)} kcal</div>
+                <div>{Math.max(0, Math.round(goals.kcal - totals.kcal))} left</div>
+              </div>
+
+              <div style={{ marginTop: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                  <div>Protein</div><div>{round(totals.protein)}g</div>
+                </div>
+                <ProgressBar value={totals.protein} goal={goals.protein} />
+              </div>
+
+              <div style={{ marginTop: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                  <div>Carbs</div><div>{round(totals.carbs)}g</div>
+                </div>
+                <ProgressBar value={totals.carbs} goal={goals.carbs} />
+              </div>
+
+              <div style={{ marginTop: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                  <div>Fat</div><div>{round(totals.fat)}g</div>
+                </div>
+                <ProgressBar value={totals.fat} goal={goals.fat} />
+              </div>
+
+              <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+                <button onClick={() => { const newGoals = { ...goals }; const gk = prompt("Daily calories:", String(goals.kcal)); if (gk) newGoals.kcal = Number(gk); const gp = prompt("Protein (g):", String(goals.protein)); if (gp) newGoals.protein = Number(gp); setGoals(newGoals); }} style={styles.button}>Edit goals</button>
+                <button onClick={() => { exportLogCSV(); }} style={styles.button}>Export log</button>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ height: 12 }} />
+
+          <div style={{ padding: 12, borderRadius: 8, ...panelStyle(theme) }}>
+            <div style={{ fontWeight: 700 }}>Last 7 days</div>
+            <div style={{ marginTop: 8 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 12, marginBottom: 6 }}>Calories</div>
+                  <WeeklyChart data={weeklyAgg} field="kcal" />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, marginBottom: 6 }}>Protein</div>
+                  <WeeklyChart data={weeklyAgg} field="protein" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ height: 12 }} />
+
+          <div style={{ padding: 12, borderRadius: 8, ...panelStyle(theme) }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontWeight: 700 }}>Saved meals</div>
+              <div style={{ fontSize: 12, color: "#888" }}>{Object.keys(meta.meals || {}).length}</div>
+            </div>
+
+            <div style={{ marginTop: 8 }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <input placeholder="Meal name" value={editingMealName} onChange={e => setEditingMealName(e.target.value)} style={styles.input} />
+                <button onClick={() => { if (editingMealName && editingMealComponents.length) saveMeal(editingMealName, editingMealComponents); }} style={styles.button}>Save</button>
+              </div>
+
+              <div style={{ fontSize: 13, marginBottom: 6 }}>Components</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {editingMealComponents.map((c, idx) => (
+                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <div style={{ fontSize: 13 }}>{c.name} • {c.qty}</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={() => setEditingMealComponents(s => s.filter((_, i) => i !== idx))} style={styles.smallButton}>Remove</button>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <select style={styles.select} onChange={e => {
+                    const selected = flatList.find(f => f.name === e.target.value);
+                    if (selected) setEditingMealComponents(s => [...s, { category: selected.category, subcategory: selected.subcategory, name: selected.name, qty: selected.per }]);
+                    e.target.value = "";
+                  }}>
+                    <option value="">Add item...</option>
+                    {flatList.slice(0, 80).map(f => <option key={f.name + f.category} value={f.name}>{f.name} — {f.category}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 8 }}>
+                {Object.keys(meta.meals || {}).length === 0 && <div style={{ fontSize: 12, color: "#777" }}>No saved meals</div>}
+                {Object.keys(meta.meals || {}).map(name => (
+                  <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{name}</div>
+                      <div style={{ fontSize: 12, color: "#777" }}>{(meta.meals[name] || []).map(c => `${c.name} (${c.qty})`).join(", ")}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={() => addMealToLog(name)} style={styles.button}>Add</button>
+                      <button onClick={() => deleteMeal(name)} style={styles.smallButton}>Delete</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+        </aside>
+      </div>
+
+      {/* Bottom: Logs & history */}
+      <div style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <div style={{ fontWeight: 700 }}>{viewMode === "today" ? "Today's Log" : viewMode === "history" ? "History" : "Settings"}</div>
+            {viewMode !== "settings" && <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} style={styles.inputDate} />}
+            <div style={{ fontSize: 13, color: "#666" }}>{getLogsForDate(selectedDate).length} entries</div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => exportDB()} style={styles.button}>Export DB</button>
+            <label style={{ cursor: "pointer" }}>
+              <input type="file" accept=".csv" style={{ display: "none" }} onChange={e => importDB(e.target.files[0])} />
+              <span style={styles.button}>Import DB</span>
+            </label>
+            <button onClick={() => exportLogCSV()} style={styles.button}>Export all logs</button>
+            <button onClick={() => { if (window.confirm("Clear all logs? This cannot be undone.")) { setLog({}); } }} style={styles.smallButton}>Clear all</button>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 12 }}>
+            <div style={{ padding: 12, borderRadius: 8, ...panelStyle(theme) }}>
+              {/* Log list for selectedDate */}
+              {getLogsForDate(selectedDate).length === 0 && <div style={{ color: "#888" }}>No entries for {selectedDate}.</div>}
+              {getLogsForDate(selectedDate).map(e => (
+                <div key={e.id} style={{ display: "flex", justifyContent: "space-between", padding: 8, borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{e.name}</div>
+                    <div style={{ fontSize: 12, color: "#666" }}>{e.category} • {e.subcategory} • {e.qty}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontWeight: 700 }}>{e.kcal} kcal</div>
+                    <div style={{ fontSize: 12 }}>{e.protein}P • {e.carbs}C • {e.fat}F</div>
+                    <div style={{ marginTop: 6, display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      <button onClick={() => removeEntry(selectedDate, e.id)} style={styles.smallButton}>Remove</button>
+                    </div>
                   </div>
                 </div>
               ))}
+              {getLogsForDate(selectedDate).length > 0 && <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+                <button onClick={() => { if (window.confirm(`Clear entries for ${selectedDate}?`)) clearDate(selectedDate); }} style={styles.smallButton}>Clear date</button>
+              </div>}
             </div>
-            <div style={{marginTop:8}}>
-              <button onClick={()=>{ if(window.confirm("Clear today's log?")) setLog([]); }}>Clear</button>
-              <button onClick={()=>setLog([])} style={{marginLeft:8}}>Delete (no confirm)</button>
+
+            <div style={{ padding: 12, borderRadius: 8, ...panelStyle(theme) }}>
+              <div style={{ fontWeight: 700 }}>Favorites & Frequent</div>
+              <div style={{ marginTop: 8 }}>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {Object.keys(meta.favorites || {}).filter(k => meta.favorites[k]).map(k => {
+                    const [name, cat] = k.split("|||");
+                    const found = flatList.find(f => f.name === name && f.category === cat);
+                    if (!found) return null;
+                    return <button key={k} onClick={() => addLogEntry(found, found.per)} style={styles.smallButton}>{found.name}</button>;
+                  })}
+                  {(Object.keys(meta.favorites || {}).filter(k => meta.favorites[k]).length === 0) && <div style={{ color: "#777", fontSize: 13 }}>No favorites yet</div>}
+                </div>
+
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontWeight: 600 }}>Frequently eaten</div>
+                  <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {frequent.map(f => <button key={f.name} onClick={() => addLogEntry(f, f.per)} style={styles.smallButton}>{f.name}</button>)}
+                    {frequent.length === 0 && <div style={{ color: "#777" }}>No data</div>}
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontWeight: 600 }}>Saved meal templates</div>
+                  <div style={{ marginTop: 8, display: "flex", gap: 6, flexDirection: "column" }}>
+                    {Object.keys(meta.meals || {}).map(name => (
+                      <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ fontWeight: 600 }}>{name}</div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => addMealToLog(name)} style={styles.smallButton}>Add</button>
+                          <button onClick={() => deleteMeal(name)} style={styles.smallButton}>Delete</button>
+                        </div>
+                      </div>
+                    ))}
+                    {Object.keys(meta.meals || {}).length === 0 && <div style={{ color: "#777" }}>No saved meals</div>}
+                  </div>
+                </div>
+
+              </div>
             </div>
-          </section>
-        </main>
+
+          </div>
+        </div>
       </div>
 
-      <footer style={{marginTop:16, fontSize:12, color:"#666"}}>Built for you — data stored locally in your browser.</footer>
     </div>
   );
 }
+
+// ---- QuickAdd component ----
+function QuickAdd({ onAdd, onClose }) {
+  const [name, setName] = useState("");
+  const [kcal, setKcal] = useState("");
+  const [protein, setProtein] = useState("");
+  const [carbs, setCarbs] = useState("");
+  const [fat, setFat] = useState("");
+  const [per, setPer] = useState("100");
+
+  return (
+    <div style={{ padding: 10, borderRadius: 8, background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input placeholder="Name" value={name} onChange={e => setName(e.target.value)} style={styles.input} />
+        <input placeholder="kcal" value={kcal} onChange={e => setKcal(e.target.value)} style={styles.inputSmall} />
+        <input placeholder="protein" value={protein} onChange={e => setProtein(e.target.value)} style={styles.inputSmall} />
+        <input placeholder="per" value={per} onChange={e => setPer(e.target.value)} style={styles.inputSmall} />
+        <button onClick={() => { if (!name) return alert("Give a name"); onAdd(name, kcal, protein, carbs, fat, per); setName(""); setKcal(""); setProtein(""); setCarbs(""); setFat(""); setPer("100"); onClose(); }} style={styles.button}>Add</button>
+        <button onClick={() => onClose()} style={styles.smallButton}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// ---- Styles ----
+const styles = {
+  input: { padding: 8, borderRadius: 8, border: "1px solid rgba(0,0,0,0.08)", minWidth: 160 },
+  inputSmall: { padding: 6, borderRadius: 6, border: "1px solid rgba(0,0,0,0.08)", width: 64 },
+  select: { padding: 8, borderRadius: 8, border: "1px solid rgba(0,0,0,0.08)" },
+  button: { padding: "8px 10px", borderRadius: 8, border: "none", background: "#2563eb", color: "#fff", cursor: "pointer" },
+  smallButton: { padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(0,0,0,0.06)", background: "transparent", cursor: "pointer" },
+  iconButton: { padding: 6, borderRadius: 8, border: "none", background: "transparent", cursor: "pointer", fontSize: 16 }
+};
+
+const panelStyle = (theme) => ({
+  background: theme === "dark" ? "rgba(20,20,30,0.6)" : "#fff",
+  border: theme === "dark" ? "1px solid rgba(255,255,255,0.04)" : "1px solid rgba(0,0,0,0.04)",
+});
+
+const cardStyle = (theme) => ({
+  padding: 10,
+  borderRadius: 8,
+  background: theme === "dark" ? "rgba(10,15,22,0.6)" : "#fff",
+  border: theme === "dark" ? "1px solid rgba(255,255,255,0.03)" : "1px solid rgba(0,0,0,0.04)",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "space-between",
+});
+
+const stylesTop = {
+  topbar: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center"
+  }
+};
+
+Object.assign(styles, { topbar: stylesTop.topbar });
+
+// done
