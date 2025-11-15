@@ -2,11 +2,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
-/* Single-file full update
-   - Contains DB, UI, charts (SVG), history, goals, custom meals, favorites
-   - Uses only React + framer-motion (already in your project)
-*/
-
 const FOOD_DB = {
   Poultry: {
     Raw: {
@@ -113,7 +108,6 @@ const FOOD_DB = {
   }
 };
 
-// ---- Helpers ----
 const round = (n) => Math.round(n * 10) / 10;
 
 function flattenDB(db) {
@@ -158,15 +152,12 @@ function getTodayISO(offset = 0) {
   return iso;
 }
 
-// ---- Main App ----
 export default function App() {
-  // storage keys
   const DB_KEY = "cm_db_v4";
   const LOG_KEY = "cm_log_v4";
   const META_KEY = "cm_meta_v4";
   const GOAL_KEY = "cm_goals_v2";
 
-  // state
   const [db, setDb] = useState(() => {
     try {
       const raw = localStorage.getItem(DB_KEY);
@@ -188,7 +179,7 @@ export default function App() {
   const [log, setLog] = useState(() => {
     try {
       const raw = localStorage.getItem(LOG_KEY);
-      return raw ? JSON.parse(raw) : {}; // logs keyed by ISO date
+      return raw ? JSON.parse(raw) : {};
     } catch {
       return {};
     }
@@ -203,18 +194,16 @@ export default function App() {
     }
   });
 
-  // UI state
   const [search, setSearch] = useState("");
   const [filterShow, setFilterShow] = useState(meta.settings?.show || "Both");
   const [sortBy, setSortBy] = useState(meta.settings?.sortBy || "name");
   const [theme, setTheme] = useState(meta.settings?.theme || "light");
   const [selectedDate, setSelectedDate] = useState(getTodayISO());
-  const [viewMode, setViewMode] = useState("today"); // today | history | settings
+  const [viewMode, setViewMode] = useState("today");
   const [editingMealName, setEditingMealName] = useState("");
   const [editingMealComponents, setEditingMealComponents] = useState([]);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
 
-  // derived
   const flatList = useMemo(() => flattenDB(db), [db]);
 
   useEffect(() => {
@@ -235,7 +224,6 @@ export default function App() {
     document.documentElement.style.color = theme === "dark" ? "#e6eef6" : "#0b1220";
   }, [theme]);
 
-  // filtered list
   const filteredList = useMemo(() => {
     const q = (search || "").trim().toLowerCase();
     let items = flatList.filter(it => {
@@ -250,7 +238,6 @@ export default function App() {
     return items;
   }, [flatList, search, filterShow, sortBy]);
 
-  // helpers to handle logs per date
   function getLogsForDate(dateISO) {
     return (log[dateISO] || []);
   }
@@ -261,7 +248,6 @@ export default function App() {
     });
   }
 
-  // approx macros for amount
   function approxForItem(item, amount) {
     const amt = Number(amount) || item.per || 100;
     const ratio = amt / (item.per || 100);
@@ -288,7 +274,6 @@ export default function App() {
     };
     const prev = getLogsForDate(dateISO);
     setLogsForDate(dateISO, [entry, ...prev]);
-    // update counts
     const key = `${item.name}|||${item.category}`;
     setMeta(m => {
       const nm = { ...m };
@@ -316,7 +301,6 @@ export default function App() {
     });
   }
 
-  // meals
   function saveMeal(name, components) {
     if (!name || !components || !components.length) return;
     setMeta(m => {
@@ -345,7 +329,6 @@ export default function App() {
     });
   }
 
-  // frequent items
   const frequent = useMemo(() => {
     return Object.entries(meta.counts || {})
       .map(([k, v]) => ({ key: k, count: v }))
@@ -359,7 +342,6 @@ export default function App() {
       .filter(Boolean);
   }, [meta.counts, flatList]);
 
-  // CSV export
   function exportDB() {
     try {
       const rows = flattenDB(db).map(i => ({ category: i.category, subcategory: i.subcategory, name: i.name, kcal: i.kcal, protein: i.protein, carbs: i.carbs, fat: i.fat, per: i.per }));
@@ -416,7 +398,6 @@ export default function App() {
     reader.readAsText(file);
   }
 
-  // Weekly simple aggregates for chart (last 7 days)
   const weeklyAgg = useMemo(() => {
     const res = [];
     for (let i = 6; i >= 0; i--) {
@@ -432,7 +413,6 @@ export default function App() {
     return res;
   }, [log]);
 
-  // UI small components
   const TopBar = () => (
     <div style={styles.topbar}>
       <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -455,7 +435,6 @@ export default function App() {
     </div>
   );
 
-  // Simple progress bar component
   const ProgressBar = ({ value, goal }) => {
     const pct = goal > 0 ? Math.min(100, Math.round((value / goal) * 100)) : 0;
     return (
@@ -465,7 +444,6 @@ export default function App() {
     );
   };
 
-  // Chart component (SVG bar chart for last 7 days)
   const WeeklyChart = ({ data, field }) => {
     const max = Math.max(...data.map(d => d[field]), 10);
     const w = 420, h = 120, pad = 20;
@@ -490,7 +468,6 @@ export default function App() {
     );
   };
 
-  // Today's totals for selected date
   const totals = getLogsForDate(selectedDate).reduce((acc, e) => {
     acc.kcal += (e.kcal || 0);
     acc.protein += (e.protein || 0);
@@ -499,7 +476,6 @@ export default function App() {
     return acc;
   }, { kcal: 0, protein: 0, carbs: 0, fat: 0 });
 
-  // Quick UI: add custom food
   function addCustomFood(name, kcal, protein, carbs, fat, per = 100, category = "Custom", subcategory = "General") {
     setDb(prev => {
       const n = { ...prev };
@@ -510,19 +486,16 @@ export default function App() {
     });
   }
 
-  // Favorites keys helper
   function itemKey(it) {
     return `${it.name}|||${it.category}`;
   }
 
-  // Simple UI layout
   return (
     <div style={{ maxWidth: 1100, margin: "18px auto", padding: 14 }}>
       <TopBar />
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 16, marginTop: 12 }}>
         <div>
-          {/* Search + filters */}
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search foods (e.g. chicken, rice)" style={styles.input} />
             <select value={filterShow} onChange={e => { setFilterShow(e.target.value); setMeta(m => ({ ...m, settings: { ...(m.settings || {}), show: e.target.value } })); }} style={styles.select}>
@@ -546,7 +519,6 @@ export default function App() {
             )}
           </AnimatePresence>
 
-          {/* Foods grid */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10 }}>
             {filteredList.map(it => {
               const key = itemKey(it);
@@ -576,7 +548,6 @@ export default function App() {
         </div>
 
         <aside>
-          {/* Right column: Goals, charts, log */}
           <div style={{ padding: 12, borderRadius: 8, ...panelStyle(theme) }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div><strong>Goals</strong></div>
@@ -584,7 +555,10 @@ export default function App() {
             </div>
 
             <div style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 13, marginBottom: 4 }}>Calories</div>
+              <div style={{ fontSize: 13, marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
+                <div>Calories</div>
+                <div>{Math.round(totals.kcal)} / {goals.kcal} kcal</div>
+              </div>
               <ProgressBar value={totals.kcal} goal={goals.kcal} />
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 6 }}>
                 <div>{Math.round(totals.kcal)} kcal</div>
@@ -593,23 +567,26 @@ export default function App() {
 
               <div style={{ marginTop: 8 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                  <div>Protein</div><div>{round(totals.protein)}g</div>
+                  <div>Protein</div><div>{round(totals.protein)} / {goals.protein} g</div>
                 </div>
                 <ProgressBar value={totals.protein} goal={goals.protein} />
+                <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>{Math.max(0, round(goals.protein - totals.protein))} g remaining</div>
               </div>
 
               <div style={{ marginTop: 8 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                  <div>Carbs</div><div>{round(totals.carbs)}g</div>
+                  <div>Carbs</div><div>{round(totals.carbs)} / {goals.carbs} g</div>
                 </div>
                 <ProgressBar value={totals.carbs} goal={goals.carbs} />
+                <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>{Math.max(0, round(goals.carbs - totals.carbs))} g remaining</div>
               </div>
 
               <div style={{ marginTop: 8 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                  <div>Fat</div><div>{round(totals.fat)}g</div>
+                  <div>Fat</div><div>{round(totals.fat)} / {goals.fat} g</div>
                 </div>
                 <ProgressBar value={totals.fat} goal={goals.fat} />
+                <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>{Math.max(0, round(goals.fat - totals.fat))} g remaining</div>
               </div>
 
               <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
@@ -694,7 +671,6 @@ export default function App() {
         </aside>
       </div>
 
-      {/* Bottom: Logs & history */}
       <div style={{ marginTop: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -717,7 +693,6 @@ export default function App() {
         <div style={{ marginTop: 10 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 12 }}>
             <div style={{ padding: 12, borderRadius: 8, ...panelStyle(theme) }}>
-              {/* Log list for selectedDate */}
               {getLogsForDate(selectedDate).length === 0 && <div style={{ color: "#888" }}>No entries for {selectedDate}.</div>}
               {getLogsForDate(selectedDate).map(e => (
                 <div key={e.id} style={{ display: "flex", justifyContent: "space-between", padding: 8, borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
@@ -787,7 +762,6 @@ export default function App() {
   );
 }
 
-// ---- QuickAdd component ----
 function QuickAdd({ onAdd, onClose }) {
   const [name, setName] = useState("");
   const [kcal, setKcal] = useState("");
@@ -802,6 +776,8 @@ function QuickAdd({ onAdd, onClose }) {
         <input placeholder="Name" value={name} onChange={e => setName(e.target.value)} style={styles.input} />
         <input placeholder="kcal" value={kcal} onChange={e => setKcal(e.target.value)} style={styles.inputSmall} />
         <input placeholder="protein" value={protein} onChange={e => setProtein(e.target.value)} style={styles.inputSmall} />
+        <input placeholder="carbs" value={carbs} onChange={e => setCarbs(e.target.value)} style={styles.inputSmall} />
+        <input placeholder="fat" value={fat} onChange={e => setFat(e.target.value)} style={styles.inputSmall} />
         <input placeholder="per" value={per} onChange={e => setPer(e.target.value)} style={styles.inputSmall} />
         <button onClick={() => { if (!name) return alert("Give a name"); onAdd(name, kcal, protein, carbs, fat, per); setName(""); setKcal(""); setProtein(""); setCarbs(""); setFat(""); setPer("100"); onClose(); }} style={styles.button}>Add</button>
         <button onClick={() => onClose()} style={styles.smallButton}>Cancel</button>
@@ -810,7 +786,6 @@ function QuickAdd({ onAdd, onClose }) {
   );
 }
 
-// ---- Styles ----
 const styles = {
   input: { padding: 8, borderRadius: 8, border: "1px solid rgba(0,0,0,0.08)", minWidth: 160 },
   inputSmall: { padding: 6, borderRadius: 6, border: "1px solid rgba(0,0,0,0.08)", width: 64 },
@@ -844,5 +819,3 @@ const stylesTop = {
 };
 
 Object.assign(styles, { topbar: stylesTop.topbar });
-
-// done
