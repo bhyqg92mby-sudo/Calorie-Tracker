@@ -1,19 +1,102 @@
 import React, { useState, useEffect, useMemo } from "react";
 
 const FOOD_DB = {
+  Poultry: {
+    Raw: {
+      "Chicken mixed cuts (100g)": { kcal: 205, protein: 27, carbs: 0, fat: 9.5, per: 100 },
+      "Chicken breast (100g)": { kcal: 165, protein: 31, carbs: 0, fat: 3.6, per: 100 },
+      "Chicken thigh (100g)": { kcal: 209, protein: 26, carbs: 0, fat: 10.9, per: 100 },
+      "Chicken drumstick (100g)": { kcal: 172, protein: 28, carbs: 0, fat: 7.8, per: 100 }
+    },
+    Cooked: {
+      "Chicken mixed cuts (100g cooked)": { kcal: 293, protein: 38.5, carbs: 0, fat: 13.5, per: 100 },
+      "Chicken breast (100g cooked)": { kcal: 235, protein: 44, carbs: 0, fat: 5, per: 100 },
+      "Chicken thigh (100g cooked)": { kcal: 250, protein: 30, carbs: 0, fat: 14, per: 100 },
+      "Chicken drumstick (100g cooked)": { kcal: 210, protein: 32, carbs: 0, fat: 10, per: 100 }
+    }
+  },
+  "Meat (Red)": {
+    Raw: {
+      "Beef lean (100g)": { kcal: 250, protein: 26, carbs: 0, fat: 15, per: 100 },
+      "Pork loin (100g)": { kcal: 242, protein: 27, carbs: 0, fat: 14, per: 100 }
+    },
+    Cooked: {
+      "Beef cooked (100g est)": { kcal: 290, protein: 31, carbs: 0, fat: 18, per: 100 },
+      "Pork cooked (100g est)": { kcal: 290, protein: 29, carbs: 0, fat: 19, per: 100 }
+    }
+  },
+  Seafood: {
+    Raw: {
+      "Salmon (100g)": { kcal: 208, protein: 20, carbs: 0, fat: 13, per: 100 },
+      "Shrimp (100g)": { kcal: 99, protein: 24, carbs: 0.2, fat: 0.3, per: 100 }
+    },
+    Cooked: {
+      "Salmon cooked (100g)": { kcal: 280, protein: 26, carbs: 0, fat: 18, per: 100 },
+      "Shrimp cooked (100g)": { kcal: 120, protein: 26, carbs: 1, fat: 1, per: 100 }
+    }
+  },
   "Dairy & Eggs": {
     General: {
       "Egg (1 large)": { kcal: 72, protein: 6.3, carbs: 0.4, fat: 4.8, per: 1 },
+      "Greek yogurt (100g)": { kcal: 59, protein: 10, carbs: 3.6, fat: 0.4, per: 100 },
+      "Milk whole (100g)": { kcal: 61, protein: 3.2, carbs: 4.8, fat: 3.3, per: 100 },
+      "Paneer (100g)": { kcal: 265, protein: 18.3, carbs: 1.2, fat: 20.8, per: 100 },
       "Omelette (100g)": { kcal: 154, protein: 12, carbs: 1.5, fat: 11, per: 100 },
       "Omelette (1 egg)": { kcal: 90, protein: 6.3, carbs: 0.4, fat: 6.7, per: 1 },
       "Boiled egg (1 egg)": { kcal: 72, protein: 6.3, carbs: 0.4, fat: 5.3, per: 1 }
     }
   },
+  Legumes: {
+    Raw: {
+      "Lentils (100g)": { kcal: 353, protein: 25, carbs: 60, fat: 1.1, per: 100 },
+      "Chickpeas (100g)": { kcal: 364, protein: 19.3, carbs: 61, fat: 6, per: 100 }
+    },
+    Cooked: {
+      "Lentils cooked (100g)": { kcal: 116, protein: 9, carbs: 20, fat: 0.4, per: 100 },
+      "Chickpeas cooked (100g)": { kcal: 164, protein: 8.9, carbs: 27, fat: 2.6, per: 100 }
+    }
+  },
   Grains: {
+    Raw: {
+      "Rice white (100g)": { kcal: 360, protein: 6.6, carbs: 80, fat: 0.6, per: 100 },
+      "Pasta (100g)": { kcal: 371, protein: 13, carbs: 75, fat: 1.5, per: 100 }
+    },
+    Cooked: {
+      "Rice white cooked (100g)": { kcal: 130, protein: 2.7, carbs: 28, fat: 0.3, per: 100 },
+      "Pasta boiled (100g)": { kcal: 158, protein: 5.8, carbs: 31, fat: 0.9, per: 100 }
+    },
     General: {
       "Bread slice - Multigrain (1 slice ~30g)": { kcal: 80, protein: 4, carbs: 12, fat: 1.5, per: 30 },
       "Bread slice - Whole wheat (1 slice ~30g)": { kcal: 69, protein: 3.6, carbs: 12, fat: 1.1, per: 30 },
       "Bread slice - White (1 slice ~30g)": { kcal: 75, protein: 2.5, carbs: 13, fat: 1, per: 30 }
+    }
+  },
+  Vegetables: {
+    Raw: {
+      "Potato (100g)": { kcal: 77, protein: 2, carbs: 17, fat: 0.1, per: 100 },
+      "Broccoli (100g)": { kcal: 34, protein: 2.8, carbs: 6.6, fat: 0.4, per: 100 }
+    },
+    Cooked: {
+      "Potato boiled (100g)": { kcal: 87, protein: 1.9, carbs: 20, fat: 0.1, per: 100 },
+      "Broccoli steamed (100g)": { kcal: 35, protein: 2.4, carbs: 7.2, fat: 0.4, per: 100 }
+    }
+  },
+  Fruits: {
+    General: {
+      "Banana (100g)": { kcal: 89, protein: 1.1, carbs: 23, fat: 0.3, per: 100 },
+      "Apple (100g)": { kcal: 52, protein: 0.3, carbs: 14, fat: 0.2, per: 100 }
+    }
+  },
+  "Nuts & Seeds": {
+    General: {
+      "Almonds (28g)": { kcal: 161, protein: 6, carbs: 6, fat: 14, per: 28 },
+      "Peanut butter (16g tbsp)": { kcal: 94, protein: 3.5, carbs: 3, fat: 8, per: 16 }
+    }
+  },
+  "Fats & Oils": {
+    General: {
+      "Olive oil (1 tbsp ~13.5g)": { kcal: 119, protein: 0, carbs: 0, fat: 13.5, per: 13.5 },
+      "Butter (1 tbsp ~14g)": { kcal: 102, protein: 0.1, carbs: 0, fat: 11.5, per: 14 }
     }
   },
   Drinks: {
@@ -22,6 +105,7 @@ const FOOD_DB = {
     }
   }
 };
+
 
 function flattenDB(db) {
   const flat = [];
