@@ -1,8 +1,246 @@
 import React, { useState, useEffect, useMemo } from "react";
-const FOOD_DB = {"Dairy & Eggs":{"General":{"Egg (1 large)":{kcal:72,protein:6.3,carbs:0.4,fat:4.8,per:1},"Omelette (100g)":{kcal:154,protein:12,carbs:1.5,fat:11,per:100},"Omelette (1 egg)":{kcal:90,protein:6.3,carbs:0.4,fat:6.7,per:1},"Boiled egg (1 egg)":{kcal:72,protein:6.3,carbs:0.4,fat:5.3,per:1}}},"Grains":{"General":{"Bread slice - Multigrain (1 slice ~30g)":{kcal:80,protein:4,carbs:12,fat:1.5,per:30}}},"Drinks":{"General":{"Black coffee (1 cup ~240ml)":{kcal:2,protein:0.3,carbs:0,fat:0,per:240}}}};
-function deepCopy(o){return JSON.parse(JSON.stringify(o))}
-function flattenDB(db){const flat=[];Object.keys(db).forEach(cat=>{Object.keys(db[cat]).forEach(sub=>{Object.keys(db[cat][sub]).forEach(name=>flat.push({category:cat,subcategory:sub,name,...db[cat][sub][name]}))})});return flat}
-function round(n){return Math.round(n*10)/10}
-function toCSV(rows){if(!rows||rows.length===0)return"";const headers=Object.keys(rows[0]||{});const lines=[headers.join(",")];rows.forEach(r=>lines.push(headers.map(h=>JSON.stringify(r[h]??"")).join(",")));return lines.join("\n")}
-function fromCSV(text){const [headerLine,...lines]=text.split(/\r?\n/).filter(Boolean);const headers=headerLine.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(h=>h.replace(/^"|"$/g,""));return lines.map(line=>{const cols=line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(c=>c.replace(/^"|"$/g,"'));const obj={};headers.forEach((h,i)=>obj[h]=cols[i]);return obj})}
-export default function App(){const DB_KEY="cm_db_v3",LOG_KEY="cm_log_v3",META_KEY="cm_meta_v3";const [db,setDb]=useState(()=>{const r=localStorage.getItem(DB_KEY);try{return r?JSON.parse(r):FOOD_DB}catch(e){return FOOD_DB}});const [log,setLog]=useState(()=>{const r=localStorage.getItem(LOG_KEY);try{return r?JSON.parse(r):[] }catch(e){return []}});const [meta,setMeta]=useState(()=>{const r=localStorage.getItem(META_KEY);try{return r?JSON.parse(r):{favorites:{},counts:{},settings:{show:"Both",sortBy:"name"},meals:{}}}catch(e){return {favorites:{},counts:{},settings:{show:"Both",sortBy:"name"},meals:{}}}});const [search,setSearch]=useState(""),[filterShow,setFilterShow]=useState(meta.settings?.show||"Both"),[sortBy,setSortBy]=useState(meta.settings?.sortBy||"name");const [mealName,setMealName]=useState(""),[mealComponents,setMealComponents]=useState([]);const [goalKcal,setGoalKcal]=useState(()=>{try{const g=JSON.parse(localStorage.getItem('cm_goals_v1')||'null');return(g&&g.kcal)||2500}catch(e){return 2500}});const [goalProtein,setGoalProtein]=useState(()=>{try{const g=JSON.parse(localStorage.getItem('cm_goals_v1')||'null');return(g&&g.protein)||150}catch(e){return 150}});const [goalCarbs,setGoalCarbs]=useState(()=>{try{const g=JSON.parse(localStorage.getItem('cm_goals_v1')||'null');return(g&&g.carbs)||250}catch(e){return 250}});const [goalFat,setGoalFat]=useState(()=>{try{const g=JSON.parse(localStorage.getItem('cm_goals_v1')||'null');return(g&&g.fat)||70}catch(e){return 70}});useEffect(()=>{try{localStorage.setItem(DB_KEY,JSON.stringify(db))}catch(e){}},[db]);useEffect(()=>{try{localStorage.setItem(LOG_KEY,JSON.stringify(log))}catch(e){}},[log]);useEffect(()=>{try{localStorage.setItem(META_KEY,JSON.stringify(meta))}catch(e){}},[meta]);useEffect(()=>{try{localStorage.setItem('cm_goals_v1',JSON.stringify({kcal:goalKcal,protein:goalProtein,carbs:goalCarbs,fat:goalFat}))}catch(e){}},[goalKcal,goalProtein,goalCarbs,goalFat]);const flatList=useMemo(()=>flattenDB(db),[db]);const filteredList=useMemo(()=>{const q=(search||"").trim().toLowerCase();let items=flatList.filter(it=>{if(filterShow==="Raw"&&it.subcategory!=="Raw")return false;if(filterShow==="Cooked"&&it.subcategory!=="Cooked")return false;if(!q)return true;return(it.name+" "+it.category+" "+it.subcategory).toLowerCase().includes(q)});if(sortBy==="kcal")items.sort((a,b)=>(b.kcal||0)-(a.kcal||0));else if(sortBy==="protein")items.sort((a,b)=>(b.protein||0)-(a.protein||0));else items.sort((a,b)=>(a.name||"").localeCompare(b.name||""));return items},[flatList,search,filterShow,sortBy]);function approxForItem(item,amount){const amt=Number(amount)||item.per||100;const ratio=amt/(item.per||100);return{kcal:round((item.kcal||0)*ratio),protein:round((item.protein||0)*ratio),carbs:round((item.carbs||0)*ratio),fat:round((item.fat||0)*ratio)}}function addLogEntry(item,qty){if(!item||!item.name)return;const amt=Number(qty)||item.per||100;const macros=approxForItem(item,amt);const entry={id:Date.now(),category:item.category,subcategory:item.subcategory,name:item.name,qty:amt,per:item.per,...macros};setLog(s=>[entry,...s]);const key=`${item.name}|||${item.category}`;setMeta(m=>{const nm={...m};nm.counts=nm.counts||{};nm.counts[key]=(nm.counts[key]||0)+1;return nm})}function toggleFavorite(itemKey){setMeta(m=>{const nm={...m};nm.favorites=nm.favorites||{};nm.favorites[itemKey]=!nm.favorites[itemKey];return nm})}function clearLog(){try{if(window.confirm(\"Clear today's log?\"))setLog([])}catch(e){setLog([])}}function exportDB(){try{const rows=flattenDB(db).map(i=>({category:i.category,subcategory:i.subcategory,name:i.name,kcal:i.kcal,protein:i.protein,carbs:i.carbs,fat:i.fat,per:i.per}));const csv=toCSV(rows);const blob=new Blob([csv],{type:'text/csv'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='food_db_export.csv';a.click();URL.revokeObjectURL(url)}catch(e){alert('Export failed')}}function importDB(file){if(!file)return;const reader=new FileReader();reader.onload=(e)=>{try{const rows=fromCSV(e.target.result||\"\");const newDb=deepCopy(db);if(!newDb.Imported)newDb.Imported={General:{}};rows.forEach(r=>{const name=r.name||`Imported ${Date.now()}`;newDb.Imported.General[name]={kcal:Number(r.kcal)||0,protein:Number(r.protein)||0,carbs:Number(r.carbs)||0,fat:Number(r.fat)||0,per:Number(r.per)||100}});setDb(newDb);alert('Imported into category \"Imported\"')}catch(err){alert('Failed to import: '+(err&&err.message?err.message:err))}};reader.readAsText(file)}function exportLog(){try{const rows=log.map(l=>({date:new Date(l.id).toISOString(),category:l.category,subcategory:l.subcategory,name:l.name,qty:l.qty,kcal:l.kcal,protein:l.protein,carbs:l.carbs,fat:l.fat}));const csv=toCSV(rows);const blob=new Blob([csv],{type:'text/csv'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='food_log_export.csv';a.click();URL.revokeObjectURL(url)}catch(e){alert('Export failed')}}function saveMeal(name,components){if(!name||!components||!components.length)return;setMeta(m=>{const nm={...m};nm.meals=nm.meals||{};nm.meals[name]=components;return nm})}function deleteMeal(name){setMeta(m=>{const nm={...m};if(nm.meals)delete nm.meals[name];return nm})}function addMealToLog(name){if(!meta.meals||!meta.meals[name])return;meta.meals[name].forEach(c=>{const found=flatList.find(i=>i.name===c.name&&i.category===c.category);addLogEntry(found||c,c.qty||c.per||100)})}const frequent=useMemo(()=>{const entries=Object.entries(meta.counts||{}).map(([k,v])=>({key:k,count:v}));entries.sort((a,b)=>b.count-a.count);return entries.slice(0,8).map(e=>{const [name,category]=e.key.split('|||');const found=flatList.find(i=>i.name===name&&i.category===category);return found?{...found,count:e.count}:null}).filter(Boolean)},[meta.counts,flatList]);function updateSetting(k,v){setMeta(m=>{const nm={...m};nm.settings=nm.settings||{};nm.settings[k]=v;return nm})}function detectCooked(name){if(!name)return null;const lower=name.toLowerCase();if(lower.includes('cooked')||lower.includes('boiled')||lower.includes('roasted')||lower.includes('fried')||lower.includes('grilled'))return'Cooked';if(lower.includes('raw')||lower.includes('uncooked'))return'Raw';return null}const totals=log.reduce((acc,e)=>{acc.kcal+=e.kcal||0;acc.protein+=e.protein||0;acc.carbs+=e.carbs||0;acc.fat+=e.fat||0;return acc},{kcal:0,protein:0,carbs:0,fat:0});return(<div className="container"><header style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h1>Calorie & Macro Tracker</h1><div><button onClick={exportDB}>Export DB</button><label style={{marginLeft:8}}><span style={{cursor:'pointer'}}>Import DB</span><input type="file" accept=".csv" style={{display:'none'}} onChange={(e)=>importDB(e.target.files[0])} /></label><button style={{marginLeft:8}} onClick={exportLog}>Export Log</button></div></header><div style={{display:'grid',gridTemplateColumns:'1fr 2fr',gap:16,marginTop:16}}><aside><div style={{padding:12,border:'1px solid #ddd',borderRadius:6}}><input placeholder="Search food..." value={search} onChange={(e)=>setSearch(e.target.value)} style={{width:'100%',padding:8}} /><div style={{marginTop:8,display:'flex',gap:8}}><select value={filterShow} onChange={(e)=>{setFilterShow(e.target.value);updateSetting('show',e.target.value)}}><option value="Both">Both</option><option value="Raw">Raw</option><option value="Cooked">Cooked</option></select><select value={sortBy} onChange={(e)=>{setSortBy(e.target.value);updateSetting('sortBy',e.target.value)}}><option value="name">Sort: Name</option><option value="kcal">Sort: kcal</option><option value="protein">Sort: protein</option></select></div><div style={{marginTop:12}}><h4>Daily Goals</h4><label>Calories<input type="number" value={goalKcal} onChange={(e)=>setGoalKcal(Number(e.target.value)||0)} style={{width:'100%'}} /></label><label>Protein<input type="number" value={goalProtein} onChange={(e)=>setGoalProtein(Number(e.target.value)||0)} style={{width:'100%'}} /></label><label>Carbs<input type="number" value={goalCarbs} onChange={(e)=>setGoalCarbs(Number(e.target.value)||0)} style={{width:'100%'}} /></label><label>Fat<input type="number" value={goalFat} onChange={(e)=>setGoalFat(Number(e.target.value)||0)} style={{width:'100%'}} /></label><div style={{marginTop:8,background:'#fafafa',padding:8,borderRadius:4}}><div>Consumed: {Math.round(totals.kcal)} kcal / Remaining: {Math.max(0,Math.round(goalKcal-totals.kcal))} kcal</div><div>Protein: {round(totals.protein)}g / {Math.max(0,round(goalProtein-totals.protein))}g</div><div>Carbs: {round(totals.carbs)}g / {Math.max(0,round(goalCarbs-totals.carbs))}g</div><div>Fat: {round(totals.fat)}g / {Math.max(0,round(goalFat-totals.fat))}g</div></div></div></div></aside><main><section style={{padding:12,border:'1px solid #ddd',borderRadius:6}}><h3>Foods</h3><div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8}}>{filteredList.map(it=>{const key=`${it.name}|||${it.category}`;return(<div key={key} style={{padding:8,border:'1px solid #eee',borderRadius:6}}><div style={{fontWeight:600}}>{it.name}</div><div style={{fontSize:12,color:'#666'}}>{it.category} • {it.subcategory} • per {it.per}</div><div style={{marginTop:8}}><input type="number" defaultValue={it.per} id={`qty-${key}`} style={{width:80,padding:4}} /><button onClick={()=>{const v=document.getElementById(`qty-${key}`).value;addLogEntry(it,v)}} style={{marginLeft:8}}>Add</button><button onClick={()=>toggleFavorite(key)} style={{marginLeft:8}}>{meta.favorites[key]?'★':'☆'}</button><button onClick={()=>setMealComponents(s=>[...s,{category:it.category,subcategory:it.subcategory,name:it.name,qty:it.per}])} style={{marginLeft:8}}>+meal</button></div></div>)})}</div></section><section style={{marginTop:12,padding:12,border:'1px solid #ddd',borderRadius:6}}><h3>Today's Log ({log.length})</h3><div>{log.map(e=>(<div key={e.id} style={{display:'flex',justifyContent:'space-between',padding:8,borderBottom:'1px solid #f0f0f0'}}><div><div style={{fontWeight:600}}>{e.name}</div><div style={{fontSize:12,color:'#666'}}>{e.category} • {e.subcategory} • Qty: {e.qty}</div></div><div style={{textAlign:'right'}}><div>{e.kcal} kcal</div><div style={{fontSize:12}}>{e.protein}P • {e.carbs}C • {e.fat}F</div></div></div>))}</div><div style={{marginTop:8}}><button onClick={clearLog}>Clear</button><button onClick={()=>setLog([])} style={{marginLeft:8}}>Delete (no confirm)</button></div></section></main></div><footer style={{marginTop:16,fontSize:12,color:'#666'}}>Built for you — export/import CSV available. Data is stored locally in your browser.</footer></div>) }
+
+const FOOD_DB = {
+  "Dairy & Eggs": {
+    General: {
+      "Egg (1 large)": { kcal: 72, protein: 6.3, carbs: 0.4, fat: 4.8, per: 1 },
+      "Omelette (100g)": { kcal: 154, protein: 12, carbs: 1.5, fat: 11, per: 100 },
+      "Omelette (1 egg)": { kcal: 90, protein: 6.3, carbs: 0.4, fat: 6.7, per: 1 },
+      "Boiled egg (1 egg)": { kcal: 72, protein: 6.3, carbs: 0.4, fat: 5.3, per: 1 }
+    }
+  },
+  Grains: {
+    General: {
+      "Bread slice - Multigrain (1 slice ~30g)": { kcal: 80, protein: 4, carbs: 12, fat: 1.5, per: 30 },
+      "Bread slice - Whole wheat (1 slice ~30g)": { kcal: 69, protein: 3.6, carbs: 12, fat: 1.1, per: 30 },
+      "Bread slice - White (1 slice ~30g)": { kcal: 75, protein: 2.5, carbs: 13, fat: 1, per: 30 }
+    }
+  },
+  Drinks: {
+    General: {
+      "Black coffee (1 cup ~240ml)": { kcal: 2, protein: 0.3, carbs: 0, fat: 0, per: 240 }
+    }
+  }
+};
+
+function flattenDB(db) {
+  const flat = [];
+  Object.keys(db).forEach(cat => {
+    const subcats = db[cat];
+    Object.keys(subcats).forEach(sub => {
+      const items = subcats[sub];
+      Object.keys(items).forEach(name => {
+        flat.push({ category: cat, subcategory: sub, name, ...items[name] });
+      });
+    });
+  });
+  return flat;
+}
+
+function round(n){ return Math.round(n*10)/10; }
+
+function toCSV(rows){
+  if(!rows || rows.length === 0) return "";
+  const headers = Object.keys(rows[0]);
+  const lines = [headers.join(",")];
+  rows.forEach(r => lines.push(headers.map(h => JSON.stringify(r[h] ?? "")).join(",")));
+  return lines.join("\n");
+}
+
+function fromCSV(text){
+  if(!text) return [];
+  const [headerLine, ...lines] = text.split(/\r?\n/).filter(Boolean);
+  const headers = headerLine.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(h => h.replace(/^"|"$/g,""));
+  return lines.map(line => {
+    const cols = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(c => c.replace(/^"|"$/g,""));
+    const obj = {};
+    headers.forEach((h,i) => obj[h] = cols[i]);
+    return obj;
+  });
+}
+
+export default function App(){
+  const DB_KEY = "cm_db_v3";
+  const LOG_KEY = "cm_log_v3";
+  const META_KEY = "cm_meta_v3";
+
+  const [db, setDb] = useState(() => {
+    const raw = localStorage.getItem(DB_KEY);
+    try { return raw ? JSON.parse(raw) : FOOD_DB; } catch(e){ return FOOD_DB; }
+  });
+  const [log, setLog] = useState(() => {
+    const raw = localStorage.getItem(LOG_KEY);
+    try { return raw ? JSON.parse(raw) : []; } catch(e){ return []; }
+  });
+  const [meta, setMeta] = useState(() => {
+    const raw = localStorage.getItem(META_KEY);
+    try { return raw ? JSON.parse(raw) : { favorites: {}, counts: {}, settings: { show: "Both", sortBy: "name" }, meals: {} }; } catch(e){ return { favorites: {}, counts: {}, settings: { show: "Both", sortBy: "name" }, meals: {} }; }
+  });
+
+  const [search, setSearch] = useState("");
+  const [filterShow, setFilterShow] = useState(meta.settings?.show || "Both");
+  const [sortBy, setSortBy] = useState(meta.settings?.sortBy || "name");
+
+  const [goalKcal, setGoalKcal] = useState(() => { try { const g = JSON.parse(localStorage.getItem('cm_goals_v1')||'null'); return (g && g.kcal) || 2500; } catch(e){ return 2500; } });
+  const [goalProtein, setGoalProtein] = useState(() => { try { const g = JSON.parse(localStorage.getItem('cm_goals_v1')||'null'); return (g && g.protein) || 150; } catch(e){ return 150; } });
+  const [goalCarbs, setGoalCarbs] = useState(() => { try { const g = JSON.parse(localStorage.getItem('cm_goals_v1')||'null'); return (g && g.carbs) || 250; } catch(e){ return 250; } });
+  const [goalFat, setGoalFat] = useState(() => { try { const g = JSON.parse(localStorage.getItem('cm_goals_v1')||'null'); return (g && g.fat) || 70; } catch(e){ return 70; } });
+
+  useEffect(()=>{ try{ localStorage.setItem(DB_KEY, JSON.stringify(db)); }catch(e){} }, [db]);
+  useEffect(()=>{ try{ localStorage.setItem(LOG_KEY, JSON.stringify(log)); }catch(e){} }, [log]);
+  useEffect(()=>{ try{ localStorage.setItem(META_KEY, JSON.stringify(meta)); }catch(e){} }, [meta]);
+  useEffect(()=>{ try{ localStorage.setItem('cm_goals_v1', JSON.stringify({ kcal: goalKcal, protein: goalProtein, carbs: goalCarbs, fat: goalFat })); }catch(e){} }, [goalKcal, goalProtein, goalCarbs, goalFat]);
+
+  const flatList = useMemo(() => flattenDB(db), [db]);
+
+  const filteredList = useMemo(() => {
+    const q = (search || "").trim().toLowerCase();
+    let items = flatList.filter(it => {
+      if (filterShow === "Raw" && it.subcategory !== "Raw") return false;
+      if (filterShow === "Cooked" && it.subcategory !== "Cooked") return false;
+      if (!q) return true;
+      return (it.name + " " + it.category + " " + it.subcategory).toLowerCase().includes(q);
+    });
+    if (sortBy === "kcal") items.sort((a,b) => (b.kcal||0) - (a.kcal||0));
+    else if (sortBy === "protein") items.sort((a,b) => (b.protein||0) - (a.protein||0));
+    else items.sort((a,b) => (a.name||"").localeCompare(b.name||""));
+    return items;
+  }, [flatList, search, filterShow, sortBy]);
+
+  function approxForItem(item, amount){
+    const amt = Number(amount) || item.per || 100;
+    const ratio = amt / (item.per || 100);
+    return { kcal: round((item.kcal||0) * ratio), protein: round((item.protein||0) * ratio), carbs: round((item.carbs||0) * ratio), fat: round((item.fat||0) * ratio) };
+  }
+
+  function addLogEntry(item, qty){
+    if(!item || !item.name) return;
+    const amt = Number(qty) || item.per || 100;
+    const macros = approxForItem(item, amt);
+    const entry = { id: Date.now(), category: item.category, subcategory: item.subcategory, name: item.name, qty: amt, per: item.per, ...macros };
+    setLog(s => [entry, ...s]);
+    const key = `${item.name}|||${item.category}`;
+    setMeta(m => { const nm = {...m}; nm.counts = nm.counts || {}; nm.counts[key] = (nm.counts[key] || 0) + 1; return nm; });
+  }
+
+  function exportDB(){
+    try {
+      const rows = flattenDB(db).map(i => ({ category: i.category, subcategory: i.subcategory, name: i.name, kcal: i.kcal, protein: i.protein, carbs: i.carbs, fat: i.fat, per: i.per }));
+      const csv = toCSV(rows);
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'food_db_export.csv'; a.click(); URL.revokeObjectURL(url);
+    } catch(e) { alert('Export failed'); }
+  }
+
+  function importDB(file){
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const rows = fromCSV(e.target.result || "");
+        const newDb = JSON.parse(JSON.stringify(db));
+        if (!newDb.Imported) newDb.Imported = { General: {} };
+        rows.forEach(r => {
+          const name = r.name || `Imported ${Date.now()}`;
+          newDb.Imported.General[name] = { kcal: Number(r.kcal)||0, protein: Number(r.protein)||0, carbs: Number(r.carbs)||0, fat: Number(r.fat)||0, per: Number(r.per)||100 };
+        });
+        setDb(newDb);
+        alert('Imported into category "Imported"');
+      } catch(err) { alert('Failed to import: ' + (err && err.message ? err.message : err)); }
+    };
+    reader.readAsText(file);
+  }
+
+  const totals = log.reduce((acc,e) => { acc.kcal+=e.kcal||0; acc.protein+=e.protein||0; acc.carbs+=e.carbs||0; acc.fat+=e.fat||0; return acc; }, {kcal:0, protein:0, carbs:0, fat:0});
+
+  return (
+    <div style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial", padding: 16 }}>
+      <header style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+        <h1>Calorie & Macro Tracker</h1>
+        <div>
+          <button onClick={exportDB} style={{marginRight:8}}>Export DB</button>
+          <label style={{marginRight:8, cursor:"pointer"}}>Import DB<input type="file" accept=".csv" style={{display:"none"}} onChange={(e)=>importDB(e.target.files[0])} /></label>
+        </div>
+      </header>
+
+      <div style={{display:"grid", gridTemplateColumns:"320px 1fr", gap:16, marginTop:16}}>
+        <aside style={{padding:12, border:"1px solid #ddd", borderRadius:8}}>
+          <input placeholder="Search food..." value={search} onChange={(e)=>setSearch(e.target.value)} style={{width:"100%", padding:8, marginBottom:8}} />
+          <div style={{display:"flex", gap:8, marginBottom:8}}>
+            <select value={filterShow} onChange={(e)=>{ setFilterShow(e.target.value); setMeta(m=>({...m, settings:{...(m.settings||{}), show: e.target.value}})); }}>
+              <option value="Both">Both</option>
+              <option value="Raw">Raw</option>
+              <option value="Cooked">Cooked</option>
+            </select>
+            <select value={sortBy} onChange={(e)=>{ setSortBy(e.target.value); setMeta(m=>({...m, settings:{...(m.settings||{}), sortBy: e.target.value}})); }}>
+              <option value="name">Sort: Name</option>
+              <option value="kcal">Sort: kcal</option>
+              <option value="protein">Sort: protein</option>
+            </select>
+          </div>
+
+          <div>
+            <h3>Daily Goals</h3>
+            <label>Calories<input type="number" value={goalKcal} onChange={(e)=>setGoalKcal(Number(e.target.value)||0)} style={{width:"100%"}} /></label>
+            <label>Protein<input type="number" value={goalProtein} onChange={(e)=>setGoalProtein(Number(e.target.value)||0)} style={{width:"100%"}} /></label>
+            <label>Carbs<input type="number" value={goalCarbs} onChange={(e)=>setGoalCarbs(Number(e.target.value)||0)} style={{width:"100%"}} /></label>
+            <label>Fat<input type="number" value={goalFat} onChange={(e)=>setGoalFat(Number(e.target.value)||0)} style={{width:"100%"}} /></label>
+
+            <div style={{marginTop:8, padding:8, background:"#fafafa", borderRadius:6}}>
+              <div>Consumed: {Math.round(totals.kcal)} kcal / Remaining: {Math.max(0, Math.round(goalKcal - totals.kcal))} kcal</div>
+              <div>Protein: {round(totals.protein)}g / {Math.max(0, round(goalProtein - totals.protein))}g</div>
+              <div>Carbs: {round(totals.carbs)}g / {Math.max(0, round(goalCarbs - totals.carbs))}g</div>
+              <div>Fat: {round(totals.fat)}g / {Math.max(0, round(goalFat - totals.fat))}g</div>
+            </div>
+          </div>
+        </aside>
+
+        <main>
+          <section style={{padding:12, border:"1px solid #ddd", borderRadius:8}}>
+            <h3>Foods</h3>
+            <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8}}>
+              {filteredList.map(it => {
+                const key = `${it.name}|||${it.category}`;
+                return (
+                  <div key={key} style={{padding:8, border:"1px solid #eee", borderRadius:6}}>
+                    <div style={{fontWeight:600}}>{it.name}</div>
+                    <div style={{fontSize:12, color:"#666"}}>{it.category} • {it.subcategory} • per {it.per}</div>
+                    <div style={{marginTop:8}}>
+                      <input type="number" defaultValue={it.per} id={`qty-${key}`} style={{width:80, padding:4}} />
+                      <button onClick={() => { const v = document.getElementById(`qty-${key}`).value; addLogEntry(it, v); }} style={{marginLeft:8}}>Add</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section style={{marginTop:12, padding:12, border:"1px solid #ddd", borderRadius:8}}>
+            <h3>Today's Log ({log.length})</h3>
+            <div>
+              {log.map(e => (
+                <div key={e.id} style={{display:"flex", justifyContent:"space-between", padding:8, borderBottom:"1px solid #f0f0f0"}}>
+                  <div>
+                    <div style={{fontWeight:600}}>{e.name}</div>
+                    <div style={{fontSize:12, color:"#666"}}>{e.category} • {e.subcategory} • Qty: {e.qty}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div>{e.kcal} kcal</div>
+                    <div style={{fontSize:12}}>{e.protein}P • {e.carbs}C • {e.fat}F</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{marginTop:8}}>
+              <button onClick={()=>{ if(window.confirm("Clear today's log?")) setLog([]); }}>Clear</button>
+              <button onClick={()=>setLog([])} style={{marginLeft:8}}>Delete (no confirm)</button>
+            </div>
+          </section>
+        </main>
+      </div>
+
+      <footer style={{marginTop:16, fontSize:12, color:"#666"}}>Built for you — data stored locally in your browser.</footer>
+    </div>
+  );
+}
